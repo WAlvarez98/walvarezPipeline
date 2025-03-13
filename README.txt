@@ -1,1 +1,0 @@
-This project aims to use the riot API to create a web game where people can try to guess which team won just based on the team comps
