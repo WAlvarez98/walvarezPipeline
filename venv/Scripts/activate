@@ -38,7 +38,7 @@ deactivate () {
 # unset irrelevant variables
 deactivate nondestructive
 
-VIRTUAL_ENV="C:\Users\xwill\OneDrive\Desktop\Spring2025\airBnb\airbnb\venv"
+VIRTUAL_ENV="C:\Users\xwill\OneDrive\Documents\GitHub\whichCompWon\venv"
 export VIRTUAL_ENV
 
 _OLD_VIRTUAL_PATH="$PATH"

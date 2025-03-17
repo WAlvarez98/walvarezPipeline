@@ -10,6 +10,14 @@ import gzip
 from io import BytesIO
 from flasgger import Swagger
 
+import csv
+import os
+import json
+from dotenv import load_dotenv
+
+load_dotenv()
+API_TOKEN = os.getenv('API_TOKEN')
+
 app = Flask(__name__)
 
 # Swagger config
@@ -86,7 +94,27 @@ def reload_data():
     compressed_file = BytesIO(response.content)
     decompressed_file = gzip.GzipFile(fileobj=compressed_file)
 
-    # Step 2: Load data into pandas
+    # # Get Data from Riot API (will need to update this to collect a series of data from different ranks)
+    league_url = 'https://na1.api.riotgames.com/lol/league-exp/v4/entries/RANKED_SOLO_5x5/EMERALD/I?page=1&api_key=' + API_TOKEN
+
+    league_response = requests.get(league_url)
+
+    encoding = league_response.headers.get('Content-Encoding')
+    content = league_response.content
+
+    if encoding == 'gzip':
+        try:
+            with gzip.GzipFile(fileobj=BytesIO(content)) as f:
+                decompressed_data = f.read()
+        except gzip.BadGzipFile:
+            print("Error: The file is not gzipped.")
+            decompressed_data = content  # Use the original content if decompression fails
+    else:
+        decompressed_data = content
+
+    print(decompressed_data)
+
+    # Step 2:
     listings = pd.read_csv(decompressed_file)
 
     # Step 3: Clear the database
