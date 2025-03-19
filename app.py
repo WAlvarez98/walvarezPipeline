@@ -2,7 +2,6 @@ from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import OneHotEncoder
 import pandas as pd
 import numpy as np
 import requests
@@ -10,7 +9,6 @@ import gzip
 from io import BytesIO
 from flasgger import Swagger
 
-import csv
 import os
 import json
 from dotenv import load_dotenv
@@ -57,25 +55,20 @@ def preprocess_data(df):
     df['losses'] = df['losses'].fillna(df['losses'].median())
 
     #change rank to numeric
-    df['rank'] = df['rank'].replace({'I': 1, 'II': 2, 'III': 3, 'IV': 4}).astype(int)
+    df['rank'] = df['rank'].replace({'I': 0, 'II': 100, 'III': 200, 'IV': 300}).astype(int)
 
-    # One-hot encode the 'neighbourhood_cleansed' column
-    # encoder = OneHotEncoder(sparse_output=False)
-    # neighbourhood_encoded = encoder.fit_transform(df[['neighbourhood_cleansed']])
+    #change tier to numeric
+    df['tier'] = df['tier'].str.lower().replace({'iron': 0, 'bronze': 400, 'silver': 800, 'gold': 1200, 'platinum': 1600, 'emerald': 2000, 'diamond': 2400}).astype(int)
 
-    # Create a DataFrame for the one-hot encoded neighborhoods
-    # neighbourhood_encoded_df = pd.DataFrame(neighbourhood_encoded, columns=encoder.get_feature_names_out(['neighbourhood_cleansed']))
-
-    # Concatenate the encoded neighborhood with the original dataframe
-    # df = pd.concat([df, neighbourhood_encoded_df], axis=1).drop(columns=['neighbourhood_cleansed'])
+    #Add total rank column
+    df['totalRank'] = df['tier'] + df['rank'] + df['leaguePoints']
 
     # Drop any rows that still have NaN values at this point (forcefully)
     df = df.dropna()
-    return df, encoder
+    return df
 
-# Global variables for model and encoder
+# Global variables for model
 model = None
-encoder = None
 
 @app.route('/reload', methods=['POST'])
 def reload_data():
@@ -86,13 +79,7 @@ def reload_data():
       200:
         description: Summary statistics of reloaded data
     '''
-    global model, encoder
-
-    # # Step 1: Download and decompress data
-    # url = 'https://data.insideairbnb.com/united-states/ma/boston/2024-06-22/data/listings.csv.gz'
-    # response = requests.get(url)
-    # compressed_file = BytesIO(response.content)
-    # decompressed_file = gzip.GzipFile(fileobj=compressed_file)
+    global model
 
     # # Get Data from Riot API (will need to update this to collect a series of data from different ranks)
     league_url = 'https://na1.api.riotgames.com/lol/league-exp/v4/entries/RANKED_SOLO_5x5/EMERALD/I?page=1&api_key=' + API_TOKEN
@@ -114,31 +101,24 @@ def reload_data():
 
     accounts = json.loads(decompressed_data)
 
-    # Step 2:
-    # listings = pd.read_csv(decompressed_file)
     seen_ids = set()
     cleaned_accounts = []
 
     for row in accounts:
-        if row["leagueId"] not in seen_ids:
+        league_id = row.get("leagueId")  # Safely get the leagueId
+        if league_id and league_id not in seen_ids:
             cleaned_accounts.append(row)
-            seen_ids.add(row["leagueId"])
+            seen_ids.add(league_id)
 
     accounts = cleaned_accounts  # Remove duplicates
-
 
     accounts = pd.DataFrame(accounts)
 
     # Step 3: Clear the database
-    # db.session.query(Listing).delete()
     db.session.query(Account).delete()
 
     # Step 4: Process data and insert it into the database
-    # listings = listings[['price', 'bedrooms', 'bathrooms', 'accommodates', 'neighbourhood_cleansed']].dropna()
-    # listings['price'] = listings['price'].replace({'\$': '', ',': ''}, regex=True).astype(float)
     accounts = accounts[['leagueId', 'tier','rank','leaguePoints','wins','losses','veteran','inactive','freshBlood','hotStreak']].dropna()
-
-
 
     for _, row in accounts.iterrows():
         new_listing = Account(
@@ -156,54 +136,28 @@ def reload_data():
         db.session.add(new_listing)
     db.session.commit()
 
-
-    # for _, row in listings.iterrows():
-    #     new_listing = Listing(
-    #         price=row['price'],
-    #         bedrooms=int(row['bedrooms']),
-    #         bathrooms=row['bathrooms'],
-    #         accommodates=int(row['accommodates']),
-    #         neighbourhood=row['neighbourhood_cleansed']
-    #     )
-    #     db.session.add(new_listing)
-    # db.session.commit()
-
     # Step 5: Preprocess and train model
-    # df, encoder = preprocess_data(listings)
-    # X = df.drop(columns='price')
-    # y = df['price']
-    # model = LinearRegression()
-    # model.fit(X, y)
-
-    df, encoder = preprocess_data(accounts) #look at rank since we are only pulling data on emerald accounts
-    X = df.drop(columns=['rank', 'leagueId', 'tier', 'freshBlood', 'hotStreak', 'veteran', 'inactive'])
-    y = df['rank']
+    df = preprocess_data(accounts) #look at rank since we are only pulling data on emerald accounts
+    X = df[['wins', 'losses']]
+    y = df['totalRank']
     model = LinearRegression()
     model.fit(X, y)
-
-    # Step 6: Generate summary statistics
-    # summary = {
-    #     'total_listings': len(listings),
-    #     'average_price': listings['price'].mean(),
-    #     'min_price': listings['price'].min(),
-    #     'max_price': listings['price'].max(),
-    #     'average_bedrooms': listings['bedrooms'].mean(),
-    #     'average_bathrooms': listings['bathrooms'].mean(),
-    #     'top_neighbourhoods': listings['neighbourhood_cleansed'].value_counts().head().to_dict()
-    # }
 
     summary = {
         'total_accounts': int(len(accounts)),
         'average_wins': float(accounts['wins'].mean()),
         'min_wins': int(accounts['wins'].min()),
         'max_wins': int(accounts['wins'].max()),
+        'average_losses': float(accounts['losses'].mean()),
+        'min_losses': int(accounts['losses'].min()),
+        'max_losses': int(accounts['losses'].max()),
     }
 
     return jsonify(summary)
-@app.route('/predict', methods=['POST'])
+@app.route('/predict', methods=['POST']) #Give the predict # wins and # losses and have it predict rank
 def predict():
     '''
-    Predict the rental price for an Airbnb listing
+    Predict the rank of a player based on wins and losses
     ---
     parameters:
       - name: body
@@ -212,63 +166,60 @@ def predict():
         schema:
           type: object
           properties:
-            bedrooms:
+            wins:
               type: integer
-            bathrooms:
-              type: number
-            accommodates:
+            losses:
               type: integer
-            neighbourhood_cleansed:
-              type: string
     responses:
       200:
-        description: Predicted rental price
+        description: Predicted rank
     '''
-    global model, encoder  # Ensure that the encoder and model are available for prediction
+    global model  # Ensure that the encoder and model are available for prediction
 
-    # Define the list of valid neighborhoods
-    valid_neighborhoods = [
-        "East Boston", "Roxbury", "Beacon Hill", "Back Bay", "North End", "Dorchester",
-        "Charlestown", "Jamaica Plain", "Downtown", "South Boston", "Bay Village",
-        "Brighton", "West Roxbury", "Roslindale", "South End", "Mission Hill",
-        "Fenway", "Allston", "Hyde Park", "West End", "Mattapan", "Leather District",
-        "South Boston Waterfront", "Chinatown", "Longwood Medical Area"
-    ]
-
-    # Check if the model and encoder are initialized
-    if model is None or encoder is None:
+    # Check if the model is initialized
+    if model is None:
         return jsonify({"error": "The data has not been loaded. Please refresh the data by calling the '/reload' endpoint first."}), 400
 
     data = request.json
     try:
-        bedrooms = pd.to_numeric(data.get('bedrooms'), errors='coerce')
-        bathrooms = pd.to_numeric(data.get('bathrooms'), errors='coerce')
-        accommodates = pd.to_numeric(data.get('accommodates'), errors='coerce')
-        neighbourhood = data.get('neighbourhood_cleansed')
+        wins = pd.to_numeric(data.get('wins'), errors='coerce')
+        losses = pd.to_numeric(data.get('losses'), errors='coerce')
 
-        if None in [bedrooms, bathrooms, accommodates, neighbourhood]:
+        if None in [wins, losses]:
             return jsonify({"error": "Missing or invalid required parameters"}), 400
 
-        # Check if the neighborhood is valid
-        if neighbourhood not in valid_neighborhoods:
-            return jsonify({"error": f"Invalid neighborhood. Please choose one of the following: {', '.join(valid_neighborhoods)}"}), 400
-
         # Check for NaN values in the converted inputs
-        if pd.isna(bedrooms) or pd.isna(bathrooms) or pd.isna(accommodates):
-            return jsonify({"error": "Invalid numeric values for bedrooms, bathrooms, or accommodates"}), 400
+        if pd.isna(wins) or pd.isna(losses):
+            return jsonify({"error": "Invalid numeric values for wins, or losses"}), 400
 
-        # Transform the input using the global encoder
-        neighbourhood_encoded = encoder.transform([[neighbourhood]])
-        input_data = np.concatenate(([bedrooms, bathrooms, accommodates], neighbourhood_encoded[0]))
-        input_data = input_data.reshape(1, -1)
+        input_data = np.array([[wins, losses]])
 
         # Predict the price
-        predicted_price = model.predict(input_data)[0]
+        predicted_rank = model.predict(input_data)[0]
 
-        return jsonify({"predicted_price": predicted_price})
+        return jsonify({"predicted_rank": convert_rank(predicted_rank)})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+def convert_rank(raw_rank): #this was done with chat gpt
+    # Define tiers
+    tiers = ["Iron", "Bronze", "Silver", "Gold", "Platinum", "Emerald", "Diamond"]
+
+    # Get tier index
+    tier_index = int(raw_rank // 400)
+    if tier_index >= len(tiers):  # Cap at Diamond
+        tier_index = len(tiers) - 1
+
+    tier = tiers[tier_index]  # Get tier name
+
+    # Get rank within the tier (1-4)
+    rank_within_tier = 4 - ((raw_rank % 400) // 100) # Converts 0-99 to IV, 100-199 to III, etc.
+
+    # Get League Points (LP)
+    league_points = raw_rank % 100  # The remainder after dividing by 100
+
+    return f"{tier} {int(rank_within_tier)} {int(league_points)} LP"
 
 if __name__ == '__main__':
     app.run(debug=True)
