@@ -34,7 +34,6 @@ class Account(db.Model):
     leagueId = db.Column(db.String, primary_key=True)
     tier = db.Column(db.String, nullable=False)
     rank = db.Column(db.String, nullable=False)
-    leaguePoints = db.Column(db.Integer, nullable=False)
 
 # Create the database
 with app.app_context():
@@ -69,40 +68,60 @@ def reload_data():
     tierList = ['EMERALD', 'DIAMOND']
     rankList = ['I', 'II', 'III', 'IV']
 
+    # seen_ids = set()
+    # cleaned_accounts = []
+
+    accountList = []
+
     for tier in tierList: #need to paginate as these only get first 200 accounts from each rank. Ask professor how to know how much data I need for this project? What is a significant amount of data
         for rank in rankList:
 
             league_url = 'https://na1.api.riotgames.com/lol/league-exp/v4/entries/RANKED_SOLO_5x5/'+tier+'/'+rank+'?page=1&api_key=' + API_TOKEN
 
             league_response = requests.get(league_url)
-            accountList = json.loads(league_response.text)
+            accountPage = json.loads(league_response.text)
+            accountList.extend(accountPage)
 
-            # seen_ids = set() #this needs to be outside the loops
-            # cleaned_accounts = []
             # for row in accountList:
             #     league_id = row.get("leagueId")  # Safely get the leagueId
             #     if league_id and league_id not in seen_ids:
             #         cleaned_accounts.append(row)
             #         seen_ids.add(league_id)
-            # accounts = cleaned_accounts  # Remove duplicates
+            # accountList = cleaned_accounts  # Remove duplicates
 
-            accountList = pd.DataFrame(accountList)
 
-            # # Step 4: Process data and insert it into the database
-            # accounts = accounts[['leagueId', 'tier','rank']].dropna()
+    accountList = pd.DataFrame(accountList)
 
-            for _, row in accountList.iterrows():
-                new_listing = Account(
-                    leagueId=row['leagueId'],
-                    tier=row['tier'],
-                    rank=row['rank'],
-                )
-                db.session.add(new_listing)
-            db.session.commit()
+    # # Step 4: Process data and insert it into the database
+    accountList = accountList[['leagueId', 'tier','rank']].dropna()
+    accountList = accountList.drop_duplicates(subset="leagueId", keep="first")
 
+    for _, row in accountList.iterrows():
+        new_listing = Account(
+            leagueId=row['leagueId'],
+            tier=row['tier'],
+            rank=row['rank'],
+        )
+        db.session.add(new_listing)
+    db.session.commit()
 
     return jsonify()
 
+def convert_rank(raw_rank):
+    # Define tiers
+    tiers = ["Iron", "Bronze", "Silver", "Gold", "Platinum", "Emerald", "Diamond"]
+
+    # Get tier index
+    tier_index = int(raw_rank // 400)
+    if tier_index >= len(tiers):  # Cap at Diamond
+        tier_index = len(tiers) - 1
+
+    tier = tiers[tier_index]  # Get tier name
+
+    # Get rank within the tier (1-4)
+    rank_within_tier = 4 - ((raw_rank % 400) // 100) # Converts 0-99 to IV, 100-199 to III, etc.
+
+    return f"{tier} {int(rank_within_tier)}"
 
 if __name__ == '__main__':
     app.run(debug=True)
