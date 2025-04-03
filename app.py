@@ -31,7 +31,7 @@ db = SQLAlchemy(app)
 
 # Define a database model
 class Account(db.Model):
-    leagueId = db.Column(db.String, primary_key=True)
+    puuid = db.Column(db.String, primary_key=True)
     tier = db.Column(db.String, nullable=False)
     rank = db.Column(db.String, nullable=False)
 
@@ -41,7 +41,7 @@ with app.app_context():
 
 def preprocess_data(df):
     # Drop rows where any of the key fields are NaN
-    df = df.dropna(subset=['leagueId', 'tier','rank'])
+    df = df.dropna(subset=['puuid', 'tier','rank'])
     #change rank to numeric
     df['rank'] = df['rank'].replace({'I': 0, 'II': 100, 'III': 200, 'IV': 300}).astype(int)
     #change tier to numeric
@@ -66,10 +66,8 @@ def reload_data():
 
     db.session.query(Account).delete()
     tierList = ['EMERALD', 'DIAMOND']
+    highTierList = ['CHALLENGER', 'GRANDMASTER', 'MASTER']
     rankList = ['I', 'II', 'III', 'IV']
-
-    # seen_ids = set()
-    # cleaned_accounts = []
 
     accountList = []
 
@@ -82,23 +80,21 @@ def reload_data():
             accountPage = json.loads(league_response.text)
             accountList.extend(accountPage)
 
-            # for row in accountList:
-            #     league_id = row.get("leagueId")  # Safely get the leagueId
-            #     if league_id and league_id not in seen_ids:
-            #         cleaned_accounts.append(row)
-            #         seen_ids.add(league_id)
-            # accountList = cleaned_accounts  # Remove duplicates
+    for tier in highTierList:
 
+            league_url = 'https://na1.api.riotgames.com/lol/league-exp/v4/entries/RANKED_SOLO_5x5/'+tier+'/I?page=1&api_key=' + API_TOKEN
+
+            league_response = requests.get(league_url)
+            accountPage = json.loads(league_response.text)
+            accountList.extend(accountPage)
 
     accountList = pd.DataFrame(accountList)
-
-    # # Step 4: Process data and insert it into the database
-    accountList = accountList[['leagueId', 'tier','rank']].dropna()
-    accountList = accountList.drop_duplicates(subset="leagueId", keep="first")
+    accountList = accountList[['puuid', 'tier','rank']].dropna()
+    accountList = accountList.drop_duplicates(subset="puuid", keep="first")
 
     for _, row in accountList.iterrows():
         new_listing = Account(
-            leagueId=row['leagueId'],
+            puuid=row['puuid'],
             tier=row['tier'],
             rank=row['rank'],
         )
