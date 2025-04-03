@@ -35,6 +35,23 @@ class Account(db.Model):
     tier = db.Column(db.String, nullable=False)
     rank = db.Column(db.String, nullable=False)
 
+class Match(db.Model):
+    matchId = db.Column(db.String, primary_key=True)
+    referencePuuid = db.Column(db.String, nullable = False)
+    #averageRank?
+    team1Win = db.Column(db.Boolean, nullable=False)
+    team1 = db.Column(db.Boolean, nullable=False)
+    champ1  = db.Column(db.String, nullable=False)
+    champ2  = db.Column(db.String, nullable=False)
+    champ3  = db.Column(db.String, nullable=False)
+    champ4  = db.Column(db.String, nullable=False)
+    champ5  = db.Column(db.String, nullable=False)
+    champ6  = db.Column(db.String, nullable=False)
+    champ7  = db.Column(db.String, nullable=False)
+    champ8  = db.Column(db.String, nullable=False)
+    champ9  = db.Column(db.String, nullable=False)
+    champ10  = db.Column(db.String, nullable=False)
+
 # Create the database
 with app.app_context():
     db.create_all()
