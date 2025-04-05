@@ -5,6 +5,11 @@ from sklearn.model_selection import train_test_split
 import pandas as pd
 import numpy as np
 import requests
+
+# For rate limiting
+import backoff
+import time
+
 import gzip
 from io import BytesIO
 from flasgger import Swagger
@@ -12,6 +17,9 @@ from flasgger import Swagger
 import os
 import json
 from dotenv import load_dotenv
+
+
+timeouttime = 0.06
 
 load_dotenv()
 API_TOKEN = os.getenv('API_TOKEN')
@@ -35,12 +43,12 @@ class Account(db.Model):
     tier = db.Column(db.String, nullable=False)
     rank = db.Column(db.String, nullable=False)
 
+# class MatchSearch(db.Model): #using this as a way to automatically deduplicate seems janky and not a good idea
+#     matchId = db.Column(db.String, primary_key=True)
+
 class Match(db.Model):
     matchId = db.Column(db.String, primary_key=True)
-    referencePuuid = db.Column(db.String, nullable = False)
-    #averageRank?
     team1Win = db.Column(db.Boolean, nullable=False)
-    team1 = db.Column(db.Boolean, nullable=False)
     champ1  = db.Column(db.String, nullable=False)
     champ2  = db.Column(db.String, nullable=False)
     champ3  = db.Column(db.String, nullable=False)
@@ -55,6 +63,98 @@ class Match(db.Model):
 # Create the database
 with app.app_context():
     db.create_all()
+
+@backoff.on_exception(
+    backoff.expo,
+    requests.exceptions.RequestException,
+    max_tries=10
+)
+def make_request(url):
+    response = requests.get(url)
+
+    if response.status_code == 429:
+        print("Rate limit hit")
+        raise requests.exceptions.RequestException("Rate limited")
+
+    if response.status_code != 200:
+        raise requests.exceptions.RequestException(f"Bad status: {response.status_code}")
+
+    return response.json()
+
+def fetch_matches(matches_to_search):
+    matchesData = []
+    print("begin fetch_matches ------------------------------------------------------------")
+
+    for matchId in matches_to_search:
+        url = f'https://americas.api.riotgames.com/lol/match/v5/matches/{matchId}?api_key={API_TOKEN}'
+        team1champions = []
+        team2champions = []
+        try:
+            matchesPage = make_request(url)
+            participants = matchesPage['info']['participants']
+            team1Win = matchesPage['info']['teams'][0]['win']
+            for participant in participants:
+                if participant['teamId'] == 100:
+                    team1champions.append(participant['championName'])
+                elif participant['teamId'] == 200:
+                    team2champions.append(participant['championName'])
+
+            matchesData.append({
+                'matchId': matchId,
+                'team1Champions': team1champions,
+                'team2Champions': team2champions,
+                'team1Win': team1Win
+            })
+        except requests.exceptions.RequestException as e:
+            print(f'Failed to get matches for {matchId}: {e}')
+            continue
+        time.sleep(timeouttime)
+    print("end fetch_matches ------------------------------------------------------------")
+    return matchesData
+
+#info -> endOfGameResult == GameComplete -> Participants -> 0 -> champion name
+
+def fetch_puuids():
+    tiers_with_ranks = [
+    ('EMERALD', ['I', 'II', 'III', 'IV']),
+    ('DIAMOND', ['I', 'II', 'III', 'IV']),
+    ('MASTER', ['I']),
+    ('GRANDMASTER', ['I']),
+    ('CHALLENGER', ['I'])
+]
+    print("begin fetch_puuids ------------------------------------------------------------")
+
+    accountList = []
+    for tier, ranks in tiers_with_ranks: #need to paginate as these only get first 200 accounts from each rank. Ask professor how to know how much data I need for this project? What is a significant amount of data
+        for rank in ranks:
+            url = f'https://na1.api.riotgames.com/lol/league-exp/v4/entries/RANKED_SOLO_5x5/{tier}/{rank}?page=1&api_key={API_TOKEN}'
+        try:
+            accountPage = make_request(url)
+            accountList.extend(accountPage)
+        except requests.exceptions.RequestException as e:
+            print(f'Failed to get matches for {tier}, {rank}: {e}')
+            continue
+        time.sleep(timeouttime)
+    print("end fetch_puuids ------------------------------------------------------------")
+    return accountList
+
+
+def fetch_matches_to_search():
+    puuids = [account.puuid for account in db.session.query(Account.puuid).all()]
+    print("begin fetch_matches_to_search")
+    matches_to_search = set()
+    for puuid in puuids:
+        url = f'https://americas.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?queue=420&type=ranked&start=0&count=2&api_key={API_TOKEN}'     #queue id 420 can change the count=20 to get more games per id.
+
+        try:
+            match_id_page = make_request(url)
+            matches_to_search.update(match_id_page)
+        except requests.exceptions.RequestException as e:
+            print(f'Failed to get matches for {puuid}: {e}')
+            continue
+        time.sleep(timeouttime)
+    print("end fetch_matches_to_search ------------------------------------------------------------")
+    return matches_to_search
 
 def preprocess_data(df):
     # Drop rows where any of the key fields are NaN
@@ -82,40 +182,59 @@ def reload_data():
     global model
 
     db.session.query(Account).delete()
-    tierList = ['EMERALD', 'DIAMOND']
-    highTierList = ['CHALLENGER', 'GRANDMASTER', 'MASTER']
-    rankList = ['I', 'II', 'III', 'IV']
+    db.session.query(Match).delete()
 
-    accountList = []
-
-    for tier in tierList: #need to paginate as these only get first 200 accounts from each rank. Ask professor how to know how much data I need for this project? What is a significant amount of data
-        for rank in rankList:
-
-            league_url = 'https://na1.api.riotgames.com/lol/league-exp/v4/entries/RANKED_SOLO_5x5/'+tier+'/'+rank+'?page=1&api_key=' + API_TOKEN
-
-            league_response = requests.get(league_url)
-            accountPage = json.loads(league_response.text)
-            accountList.extend(accountPage)
-
-    for tier in highTierList:
-
-            league_url = 'https://na1.api.riotgames.com/lol/league-exp/v4/entries/RANKED_SOLO_5x5/'+tier+'/I?page=1&api_key=' + API_TOKEN
-
-            league_response = requests.get(league_url)
-            accountPage = json.loads(league_response.text)
-            accountList.extend(accountPage)
+    accountList = fetch_puuids()
 
     accountList = pd.DataFrame(accountList)
     accountList = accountList[['puuid', 'tier','rank']].dropna()
     accountList = accountList.drop_duplicates(subset="puuid", keep="first")
 
     for _, row in accountList.iterrows():
-        new_listing = Account(
+        new_account = Account(
             puuid=row['puuid'],
             tier=row['tier'],
             rank=row['rank'],
         )
-        db.session.add(new_listing)
+        db.session.add(new_account)
+    db.session.commit()
+
+    matches_to_search = fetch_matches_to_search() #this is a set
+
+    matchesData = fetch_matches(matches_to_search)
+
+    matches_df = pd.DataFrame(matchesData)
+    df_expanded = pd.DataFrame({
+        'matchId': matches_df['matchId'],
+        'team1Win': matches_df['team1Win'],
+        'champ1': matches_df['team1Champions'].apply(lambda x: x[0] if len(x) > 0 else None),
+        'champ2': matches_df['team1Champions'].apply(lambda x: x[1] if len(x) > 1 else None),
+        'champ3': matches_df['team1Champions'].apply(lambda x: x[2] if len(x) > 2 else None),
+        'champ4': matches_df['team1Champions'].apply(lambda x: x[3] if len(x) > 3 else None),
+        'champ5': matches_df['team1Champions'].apply(lambda x: x[4] if len(x) > 4 else None),
+        'champ6': matches_df['team2Champions'].apply(lambda x: x[0] if len(x) > 0 else None),
+        'champ7': matches_df['team2Champions'].apply(lambda x: x[1] if len(x) > 1 else None),
+        'champ8': matches_df['team2Champions'].apply(lambda x: x[2] if len(x) > 2 else None),
+        'champ9': matches_df['team2Champions'].apply(lambda x: x[3] if len(x) > 3 else None),
+        'champ10': matches_df['team2Champions'].apply(lambda x: x[4] if len(x) > 4 else None)
+    })
+
+    for _, row in df_expanded.iterrows():
+        new_match = Match(
+            matchId=row['matchId'],
+            team1Win=row['team1Win'],
+            champ1=row['champ1'],
+            champ2=row['champ2'],
+            champ3=row['champ3'],
+            champ4=row['champ4'],
+            champ5=row['champ5'],
+            champ6=row['champ6'],
+            champ7=row['champ7'],
+            champ8=row['champ8'],
+            champ9=row['champ9'],
+            champ10=row['champ10']
+        )
+        db.session.add(new_match)
     db.session.commit()
 
     return jsonify()

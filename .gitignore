@@ -1,1 +1,23 @@
-.env
+# Ignore Python bytecode files
+*.pyc
+*.pyo
+__pycache__/
+
+# Ignore virtual environment directory (if applicable)
+venv/
+env/
+.venv/
+.env/
+
+# Ignore installed dependencies files (if using pipenv, conda, etc.)
+Pipfile.lock
+Pipfile
+requirements.txt
+
+# Ignore Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore other system-specific files (e.g., Mac OS, Windows)
+.DS_Store
+Thumbs.db
+
