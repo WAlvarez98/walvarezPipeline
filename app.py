@@ -220,7 +220,7 @@ def reload_data():
     #     if matchId in already_fetched_ids:
     #         continue
 
-    matchesData = fetch_matches(matches_to_search) this is used if loading all data from the start
+    matchesData = fetch_matches(matches_to_search) #this is used if loading all data from the start
 
     matches_df = pd.DataFrame(matchesData)
     df_expanded = pd.DataFrame({
