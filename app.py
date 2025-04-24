@@ -43,9 +43,6 @@ class Account(db.Model):
     tier = db.Column(db.String, nullable=False)
     rank = db.Column(db.String, nullable=False)
 
-# class MatchSearch(db.Model): #using this as a way to automatically deduplicate seems janky and not a good idea
-#     matchId = db.Column(db.String, primary_key=True)
-
 class Match(db.Model):
     matchId = db.Column(db.String, primary_key=True)
     team1Win = db.Column(db.Boolean, nullable=False)
@@ -114,27 +111,36 @@ def fetch_matches(matches_to_search):
 
 #info -> endOfGameResult == GameComplete -> Participants -> 0 -> champion name
 
-def fetch_puuids():
+def fetch_puuids(): #add saftey to allow me to extract data during the process. There is just so much data and the rate limit makes it impossible
     tiers_with_ranks = [
     ('EMERALD', ['I', 'II', 'III', 'IV']),
-    ('DIAMOND', ['I', 'II', 'III', 'IV']),
-    ('MASTER', ['I']),
-    ('GRANDMASTER', ['I']),
-    ('CHALLENGER', ['I'])
+    # ('DIAMOND', ['I', 'II', 'III', 'IV']), #add these when I have time to collect more data
+    # ('MASTER', ['I']),
+    # ('GRANDMASTER', ['I']),
+    # ('CHALLENGER', ['I'])
 ]
     print("begin fetch_puuids ------------------------------------------------------------")
 
     accountList = []
     for tier, ranks in tiers_with_ranks: #need to paginate as these only get first 200 accounts from each rank. Ask professor how to know how much data I need for this project? What is a significant amount of data
         for rank in ranks:
-            url = f'https://na1.api.riotgames.com/lol/league-exp/v4/entries/RANKED_SOLO_5x5/{tier}/{rank}?page=1&api_key={API_TOKEN}'
-        try:
-            accountPage = make_request(url)
-            accountList.extend(accountPage)
-        except requests.exceptions.RequestException as e:
-            print(f'Failed to get matches for {tier}, {rank}: {e}')
-            continue
-        time.sleep(timeouttime)
+            page = 1
+            while True:
+                url = f'https://na1.api.riotgames.com/lol/league-exp/v4/entries/RANKED_SOLO_5x5/{tier}/{rank}?page={page}&api_key={API_TOKEN}'
+                try:
+                    accountPage = make_request(url)
+                    if not accountPage:
+                        break
+                    accountList.extend(accountPage)
+                    if len(accountPage) < 100:
+                        break
+                    page += 1
+                    print(f'tier: {tier} rank: {rank} page: {page}')
+                except requests.exceptions.RequestException as e:
+                    print(f'Failed to get matches for {tier}, {rank}: {e}')
+                    break
+
+                time.sleep(timeouttime)
     print("end fetch_puuids ------------------------------------------------------------")
     return accountList
 
@@ -170,7 +176,7 @@ def preprocess_data(df):
 # Global variables for model
 model = None
 
-@app.route('/reload', methods=['POST'])
+@app.route('/reload', methods=['POST']) #add another route that simply loads data from a json
 def reload_data():
     '''
     Reload data from the League of Legends dataset, clear the database, load new data, and return summary stats
@@ -201,7 +207,20 @@ def reload_data():
 
     matches_to_search = fetch_matches_to_search() #this is a set
 
-    matchesData = fetch_matches(matches_to_search)
+
+    # try:
+    #     with open('partial_matches.json', 'r') as f:
+    #         matchesData = json.load(f)
+    #         already_fetched_ids = {match['matchId'] for match in matchesData}
+    # except FileNotFoundError:
+    #     matchesData = []
+    #     already_fetched_ids = set()
+
+    # for matchId in matches_to_search:
+    #     if matchId in already_fetched_ids:
+    #         continue
+
+    matchesData = fetch_matches(matches_to_search) this is used if loading all data from the start
 
     matches_df = pd.DataFrame(matchesData)
     df_expanded = pd.DataFrame({
