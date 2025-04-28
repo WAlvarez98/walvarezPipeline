@@ -41,13 +41,6 @@ df = pd.read_sql_query("SELECT * FROM match;", conn)
 conn.close()
 
 print(df['team1Win'].value_counts())
-# url = 'https://gist.githubusercontent.com/netj/8836201/raw/6f9306ad21398ea43cba4f7d537619d0e07d5ae3/iris.csv'
-# df = pd.read_csv(url)
-
-#change last column from string to float
-# df['variety'] = df['variety'].replace('Setosa', 0.0)
-# df['variety'] = df['variety'].replace('Versicolor', 1.0)
-# df['variety'] = df['variety'].replace('Virginica', 2.0)
 
 champ_cols = [f'champ{i+1}' for i in range(10)]
 X_raw = df[champ_cols]
@@ -133,7 +126,7 @@ with torch.no_grad():
         y_val = model.forward(data)
 
         # Show the raw output, true value, and predicted winner
-        print(f'{i + 1}.)  {str(y_val)} \t True: {y_test[i]} \t Predicted: {y_val.argmax().item()}')
+        #print(f'{i + 1}.)  {str(y_val)} \t True: {y_test[i]} \t Predicted: {y_val.argmax().item()}')
 
         # Check if prediction was correct
         if y_val.argmax().item() == y_test[i]:
