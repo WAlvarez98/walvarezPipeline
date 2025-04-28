@@ -1,11 +1,14 @@
 # database_connection.py
-
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app import Match  # import your Match model
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+db_path = os.path.join(BASE_DIR, 'instance', 'listings.db')
+
 # Create engine and session
-engine = create_engine('sqlite:///C:/Users/xwill/OneDrive/Documents/GitHub/whichCompWon/instance/listings.db')
+engine = create_engine(f'sqlite:///{db_path}')
 Session = sessionmaker(bind=engine)
 session = Session()
 

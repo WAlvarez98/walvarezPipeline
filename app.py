@@ -30,8 +30,10 @@ app.config['SWAGGER'] = {
 swagger = Swagger(app)
 
 # SQLite DB setup
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///listings.db'
+basedir = os.path.abspath(os.path.dirname(__file__))
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'listings.db')
 db = SQLAlchemy(app)
+
 
 # Define a database model
 class Account(db.Model):
