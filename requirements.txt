@@ -12,4 +12,3 @@ python-dotenv
 torch
 backoff
 streamlit
-Pillow==8.4.0 --only-binary :all:
