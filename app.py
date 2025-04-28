@@ -3,19 +3,15 @@ from flask_sqlalchemy import SQLAlchemy
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
 import pandas as pd
-import numpy as np
 import requests
 
 # For rate limiting
 import backoff
 import time
 
-import gzip
-from io import BytesIO
 from flasgger import Swagger
 
 import os
-import json
 from dotenv import load_dotenv
 
 
