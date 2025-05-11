@@ -1,5 +1,6 @@
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
+from flasgger import Swagger
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
 import pandas as pd
@@ -9,8 +10,7 @@ import requests
 import backoff
 import time
 
-from flasgger import Swagger
-
+# to hide API keys
 import os
 from dotenv import load_dotenv
 
@@ -33,7 +33,6 @@ swagger = Swagger(app)
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'listings.db')
 db = SQLAlchemy(app)
-
 
 # Define a database model
 class Account(db.Model):
@@ -111,11 +110,11 @@ def fetch_matches(matches_to_search):
 
 def fetch_puuids(): #add saftey to allow me to extract data during the process. There is just so much data and the rate limit makes it impossible
     tiers_with_ranks = [
-    ('EMERALD', ['I', 'II', 'III', 'IV']),
+    # ('EMERALD', ['I', 'II', 'III', 'IV']),
     # ('DIAMOND', ['I', 'II', 'III', 'IV']), #add these when I have time to collect more data
     # ('MASTER', ['I']),
     # ('GRANDMASTER', ['I']),
-    # ('CHALLENGER', ['I'])
+    ('CHALLENGER', ['I'])
 ]
     print("begin fetch_puuids ------------------------------------------------------------")
 
@@ -148,7 +147,7 @@ def fetch_matches_to_search():
     print("begin fetch_matches_to_search")
     matches_to_search = set()
     for puuid in puuids:
-        url = f'https://americas.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?queue=420&type=ranked&start=0&count=2&api_key={API_TOKEN}'     #queue id 420 can change the count=20 to get more games per id.
+        url = f'https://americas.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?queue=420&type=ranked&start=0&count=1&api_key={API_TOKEN}'     #queue id 420 can change the count=20 to get more games per id.
 
         try:
             match_id_page = make_request(url)
@@ -204,19 +203,6 @@ def reload_data():
     db.session.commit()
 
     matches_to_search = fetch_matches_to_search() #this is a set
-
-
-    # try:
-    #     with open('partial_matches.json', 'r') as f:
-    #         matchesData = json.load(f)
-    #         already_fetched_ids = {match['matchId'] for match in matchesData}
-    # except FileNotFoundError:
-    #     matchesData = []
-    #     already_fetched_ids = set()
-
-    # for matchId in matches_to_search:
-    #     if matchId in already_fetched_ids:
-    #         continue
 
     matchesData = fetch_matches(matches_to_search) #this is used if loading all data from the start
 

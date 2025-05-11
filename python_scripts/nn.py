@@ -12,7 +12,7 @@ from sklearn.preprocessing import OneHotEncoder
 # Create Model Class that inherits nn.Module
 
 class Model(nn.Module):
-    # Input layer (4 features of flower) (team comps) ->
+    # Input layer (team comps) ->
     # hidden layer1 (n neurons) -->
     # Hidden layer ->
     # output(classify)
