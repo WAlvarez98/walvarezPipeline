@@ -1,9 +1,10 @@
-from flask import Flask, jsonify, request
-from flask_sqlalchemy import SQLAlchemy
-from flasgger import Swagger
-from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import train_test_split
-import pandas as pd
+# from flask import Flask, jsonify, request
+# from flask_sqlalchemy import SQLAlchemy
+# from flasgger import Swagger
+# from sklearn.linear_model import LinearRegression
+# from sklearn.model_selection import train_test_split
+# import pandas as pd
+
 import requests
 
 # For rate limiting
@@ -20,49 +21,51 @@ timeouttime = 0.06
 load_dotenv()
 API_TOKEN = os.getenv('API_TOKEN')
 
-app = Flask(__name__)
+# app = Flask(__name__)
 
-# Swagger config
-app.config['SWAGGER'] = {
-    'title': 'Which team won?',
-    'uiversion': 3
-}
-swagger = Swagger(app)
+# # Swagger config
+# app.config['SWAGGER'] = {
+#     'title': 'Which team won?',
+#     'uiversion': 3
+# }
+# swagger = Swagger(app)
 
-# SQLite DB setup
-basedir = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'listings.db')
-db = SQLAlchemy(app)
+# # SQLite DB setup
+# basedir = os.path.abspath(os.path.dirname(__file__))
+# app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'listings.db')
+# db = SQLAlchemy(app)
 
 # Define a database model
-class Account(db.Model):
-    puuid = db.Column(db.String, primary_key=True)
-    tier = db.Column(db.String, nullable=False)
-    rank = db.Column(db.String, nullable=False)
+# class Account(db.Model):
+#     puuid = db.Column(db.String, primary_key=True)
+#     tier = db.Column(db.String, nullable=False)
+#     rank = db.Column(db.String, nullable=False)
 
-class Match(db.Model):
-    matchId = db.Column(db.String, primary_key=True)
-    team1Win = db.Column(db.Boolean, nullable=False)
-    champ1  = db.Column(db.String, nullable=False)
-    champ2  = db.Column(db.String, nullable=False)
-    champ3  = db.Column(db.String, nullable=False)
-    champ4  = db.Column(db.String, nullable=False)
-    champ5  = db.Column(db.String, nullable=False)
-    champ6  = db.Column(db.String, nullable=False)
-    champ7  = db.Column(db.String, nullable=False)
-    champ8  = db.Column(db.String, nullable=False)
-    champ9  = db.Column(db.String, nullable=False)
-    champ10  = db.Column(db.String, nullable=False)
+# class Match(db.Model):
+#     matchId = db.Column(db.String, primary_key=True)
+#     team1Win = db.Column(db.Boolean, nullable=False)
+#     champ1  = db.Column(db.String, nullable=False)
+#     champ2  = db.Column(db.String, nullable=False)
+#     champ3  = db.Column(db.String, nullable=False)
+#     champ4  = db.Column(db.String, nullable=False)
+#     champ5  = db.Column(db.String, nullable=False)
+#     champ6  = db.Column(db.String, nullable=False)
+#     champ7  = db.Column(db.String, nullable=False)
+#     champ8  = db.Column(db.String, nullable=False)
+#     champ9  = db.Column(db.String, nullable=False)
+#     champ10  = db.Column(db.String, nullable=False)
 
 # Create the database
-with app.app_context():
-    db.create_all()
+# with app.app_context():
+#     db.create_all()
 
 @backoff.on_exception(
     backoff.expo,
     requests.exceptions.RequestException,
     max_tries=10
 )
+
+# Helper Functions #
 def make_request(url):
     response = requests.get(url)
 
@@ -74,6 +77,22 @@ def make_request(url):
         raise requests.exceptions.RequestException(f"Bad status: {response.status_code}")
 
     return response.json()
+
+def convert_rank(raw_rank):
+    # Define tiers
+    tiers = ["Iron", "Bronze", "Silver", "Gold", "Platinum", "Emerald", "Diamond"]
+
+    # Get tier index
+    tier_index = int(raw_rank // 400)
+    if tier_index >= len(tiers):  # Cap at Diamond
+        tier_index = len(tiers) - 1
+
+    tier = tiers[tier_index]  # Get tier name
+
+    # Get rank within the tier (1-4)
+    rank_within_tier = 4 - ((raw_rank % 400) // 100) # Converts 0-99 to IV, 100-199 to III, etc.
+
+    return f"{tier} {int(rank_within_tier)}"
 
 def fetch_matches(matches_to_search):
     matchesData = []
@@ -171,92 +190,76 @@ def preprocess_data(df):
     return df
 
 # Global variables for model
-model = None
+# model = None
 
-@app.route('/reload', methods=['POST']) #add another route that simply loads data from a json
-def reload_data():
-    '''
-    Reload data from the League of Legends dataset, clear the database, load new data, and return summary stats
-    ---
-    responses:
-      200:
-        description: Summary statistics of reloaded data
-    '''
-    global model
+# @app.route('/reload', methods=['POST']) #add another route that simply loads data from a json
+# def reload_data():
+#     '''
+#     Reload data from the League of Legends dataset, clear the database, load new data, and return summary stats
+#     ---
+#     responses:
+#       200:
+#         description: Summary statistics of reloaded data
+#     '''
+#     global model
 
-    db.session.query(Account).delete()
-    db.session.query(Match).delete()
+#     db.session.query(Account).delete()
+#     db.session.query(Match).delete()
 
-    accountList = fetch_puuids()
+#     accountList = fetch_puuids()
 
-    accountList = pd.DataFrame(accountList)
-    accountList = accountList[['puuid', 'tier','rank']].dropna()
-    accountList = accountList.drop_duplicates(subset="puuid", keep="first")
+#     accountList = pd.DataFrame(accountList)
+#     accountList = accountList[['puuid', 'tier','rank']].dropna()
+#     accountList = accountList.drop_duplicates(subset="puuid", keep="first")
 
-    for _, row in accountList.iterrows():
-        new_account = Account(
-            puuid=row['puuid'],
-            tier=row['tier'],
-            rank=row['rank'],
-        )
-        db.session.add(new_account)
-    db.session.commit()
+#     for _, row in accountList.iterrows():
+#         new_account = Account(
+#             puuid=row['puuid'],
+#             tier=row['tier'],
+#             rank=row['rank'],
+#         )
+#         db.session.add(new_account)
+#     db.session.commit()
 
-    matches_to_search = fetch_matches_to_search() #this is a set
+#     matches_to_search = fetch_matches_to_search() #this is a set
 
-    matchesData = fetch_matches(matches_to_search) #this is used if loading all data from the start
+#     matchesData = fetch_matches(matches_to_search) #this is used if loading all data from the start
 
-    matches_df = pd.DataFrame(matchesData)
-    df_expanded = pd.DataFrame({
-        'matchId': matches_df['matchId'],
-        'team1Win': matches_df['team1Win'],
-        'champ1': matches_df['team1Champions'].apply(lambda x: x[0] if len(x) > 0 else None),
-        'champ2': matches_df['team1Champions'].apply(lambda x: x[1] if len(x) > 1 else None),
-        'champ3': matches_df['team1Champions'].apply(lambda x: x[2] if len(x) > 2 else None),
-        'champ4': matches_df['team1Champions'].apply(lambda x: x[3] if len(x) > 3 else None),
-        'champ5': matches_df['team1Champions'].apply(lambda x: x[4] if len(x) > 4 else None),
-        'champ6': matches_df['team2Champions'].apply(lambda x: x[0] if len(x) > 0 else None),
-        'champ7': matches_df['team2Champions'].apply(lambda x: x[1] if len(x) > 1 else None),
-        'champ8': matches_df['team2Champions'].apply(lambda x: x[2] if len(x) > 2 else None),
-        'champ9': matches_df['team2Champions'].apply(lambda x: x[3] if len(x) > 3 else None),
-        'champ10': matches_df['team2Champions'].apply(lambda x: x[4] if len(x) > 4 else None)
-    })
+#     matches_df = pd.DataFrame(matchesData)
+#     df_expanded = pd.DataFrame({
+#         'matchId': matches_df['matchId'],
+#         'team1Win': matches_df['team1Win'],
+#         'champ1': matches_df['team1Champions'].apply(lambda x: x[0] if len(x) > 0 else None),
+#         'champ2': matches_df['team1Champions'].apply(lambda x: x[1] if len(x) > 1 else None),
+#         'champ3': matches_df['team1Champions'].apply(lambda x: x[2] if len(x) > 2 else None),
+#         'champ4': matches_df['team1Champions'].apply(lambda x: x[3] if len(x) > 3 else None),
+#         'champ5': matches_df['team1Champions'].apply(lambda x: x[4] if len(x) > 4 else None),
+#         'champ6': matches_df['team2Champions'].apply(lambda x: x[0] if len(x) > 0 else None),
+#         'champ7': matches_df['team2Champions'].apply(lambda x: x[1] if len(x) > 1 else None),
+#         'champ8': matches_df['team2Champions'].apply(lambda x: x[2] if len(x) > 2 else None),
+#         'champ9': matches_df['team2Champions'].apply(lambda x: x[3] if len(x) > 3 else None),
+#         'champ10': matches_df['team2Champions'].apply(lambda x: x[4] if len(x) > 4 else None)
+#     })
 
-    for _, row in df_expanded.iterrows():
-        new_match = Match(
-            matchId=row['matchId'],
-            team1Win=row['team1Win'],
-            champ1=row['champ1'],
-            champ2=row['champ2'],
-            champ3=row['champ3'],
-            champ4=row['champ4'],
-            champ5=row['champ5'],
-            champ6=row['champ6'],
-            champ7=row['champ7'],
-            champ8=row['champ8'],
-            champ9=row['champ9'],
-            champ10=row['champ10']
-        )
-        db.session.add(new_match)
-    db.session.commit()
+#     for _, row in df_expanded.iterrows():
+#         new_match = Match(
+#             matchId=row['matchId'],
+#             team1Win=row['team1Win'],
+#             champ1=row['champ1'],
+#             champ2=row['champ2'],
+#             champ3=row['champ3'],
+#             champ4=row['champ4'],
+#             champ5=row['champ5'],
+#             champ6=row['champ6'],
+#             champ7=row['champ7'],
+#             champ8=row['champ8'],
+#             champ9=row['champ9'],
+#             champ10=row['champ10']
+#         )
+#         db.session.add(new_match)
+#     db.session.commit()
 
-    return jsonify()
+#     return jsonify()
 
-def convert_rank(raw_rank):
-    # Define tiers
-    tiers = ["Iron", "Bronze", "Silver", "Gold", "Platinum", "Emerald", "Diamond"]
-
-    # Get tier index
-    tier_index = int(raw_rank // 400)
-    if tier_index >= len(tiers):  # Cap at Diamond
-        tier_index = len(tiers) - 1
-
-    tier = tiers[tier_index]  # Get tier name
-
-    # Get rank within the tier (1-4)
-    rank_within_tier = 4 - ((raw_rank % 400) // 100) # Converts 0-99 to IV, 100-199 to III, etc.
-
-    return f"{tier} {int(rank_within_tier)}"
-
-if __name__ == '__main__':
-    app.run(debug=True)
+# if __name__ == '__main__':
+    # app.run(debug=True)
