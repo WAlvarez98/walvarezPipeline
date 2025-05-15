@@ -1,63 +1,69 @@
-# from flask import Flask, jsonify, request
-# from flask_sqlalchemy import SQLAlchemy
-# from flasgger import Swagger
-# from sklearn.linear_model import LinearRegression
-# from sklearn.model_selection import train_test_split
-# import pandas as pd
-
+import psycopg2
 import requests
-
+from dbFunctions import *
 # For rate limiting
 import backoff
 import time
-
+timeouttime = 0.06
 # to hide API keys
 import os
 from dotenv import load_dotenv
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import Column, String, Boolean
 
+DATABASE_URL = "postgresql+psycopg2://airflow:airflow@postgres:5432/airflow"
 
-timeouttime = 0.06
+engine = create_engine(DATABASE_URL)
+Session = sessionmaker(bind=engine)
+session = Session()
+
+Base = declarative_base()
+
+class Account(Base):
+    __tablename__ = 'accounts'
+    __table_args__ = {'schema': 'league'}
+
+    puuid = Column(String, primary_key=True)
+    tier = Column(String)
+    rank = Column(String)
+
+class Searched_Matches(Base):
+    __tablename__ = 'searched_matches'
+    __table_args__ = {'schema': 'league'}
+
+    puuid = Column(String, primary_key=True)
+
+class Matches(Base):
+    __tablename__ = 'matches'
+    __table_args__ = {'schema': 'league'}
+
+    match_id = Column(String, primary_key=True)
+    team1win = Column(Boolean)
+    rank = Column(String)
+    champ1 = Column(String)
+    champ2 = Column(String)
+    champ3 = Column(String)
+    champ4 = Column(String)
+    champ5 = Column(String)
+    champ6 = Column(String)
+    champ7 = Column(String)
+    champ8 = Column(String)
+    champ9 = Column(String)
+    champ10 = Column(String)
 
 load_dotenv()
 API_TOKEN = os.getenv('API_TOKEN')
 
-# app = Flask(__name__)
-
-# # Swagger config
-# app.config['SWAGGER'] = {
-#     'title': 'Which team won?',
-#     'uiversion': 3
-# }
-# swagger = Swagger(app)
-
-# # SQLite DB setup
-# basedir = os.path.abspath(os.path.dirname(__file__))
-# app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'listings.db')
-# db = SQLAlchemy(app)
-
-# Define a database model
-# class Account(db.Model):
-#     puuid = db.Column(db.String, primary_key=True)
-#     tier = db.Column(db.String, nullable=False)
-#     rank = db.Column(db.String, nullable=False)
-
-# class Match(db.Model):
-#     matchId = db.Column(db.String, primary_key=True)
-#     team1Win = db.Column(db.Boolean, nullable=False)
-#     champ1  = db.Column(db.String, nullable=False)
-#     champ2  = db.Column(db.String, nullable=False)
-#     champ3  = db.Column(db.String, nullable=False)
-#     champ4  = db.Column(db.String, nullable=False)
-#     champ5  = db.Column(db.String, nullable=False)
-#     champ6  = db.Column(db.String, nullable=False)
-#     champ7  = db.Column(db.String, nullable=False)
-#     champ8  = db.Column(db.String, nullable=False)
-#     champ9  = db.Column(db.String, nullable=False)
-#     champ10  = db.Column(db.String, nullable=False)
-
-# Create the database
-# with app.app_context():
-#     db.create_all()
+conn = psycopg2.connect(
+    dbname=os.getenv("DB_NAME"),
+    user=os.getenv("DB_USER"),
+    password=os.getenv("DB_PASSWORD"),
+    host=os.getenv("DB_HOST"),
+    port=int(os.getenv("DB_PORT"))
+)
+cursor = conn.cursor()
 
 @backoff.on_exception(
     backoff.expo,
@@ -65,7 +71,6 @@ API_TOKEN = os.getenv('API_TOKEN')
     max_tries=10
 )
 
-# Helper Functions #
 def make_request(url):
     response = requests.get(url)
 
@@ -81,20 +86,18 @@ def make_request(url):
 def convert_rank(raw_rank):
     # Define tiers
     tiers = ["Iron", "Bronze", "Silver", "Gold", "Platinum", "Emerald", "Diamond"]
-
     # Get tier index
     tier_index = int(raw_rank // 400)
     if tier_index >= len(tiers):  # Cap at Diamond
         tier_index = len(tiers) - 1
 
     tier = tiers[tier_index]  # Get tier name
-
     # Get rank within the tier (1-4)
     rank_within_tier = 4 - ((raw_rank % 400) // 100) # Converts 0-99 to IV, 100-199 to III, etc.
-
     return f"{tier} {int(rank_within_tier)}"
 
-def fetch_matches(matches_to_search):
+def fetch_matches():
+    matches_to_search = [match.puuid for match in session.query(Searched_Matches.puuid).all()]
     matchesData = []
     print("begin fetch_matches ------------------------------------------------------------")
 
@@ -113,23 +116,35 @@ def fetch_matches(matches_to_search):
                     team2champions.append(participant['championName'])
 
             matchesData.append({
-                'matchId': matchId,
-                'team1Champions': team1champions,
-                'team2Champions': team2champions,
-                'team1Win': team1Win
+                'match_id': matchId,
+                'champ1': team1champions[0],
+                'champ2': team1champions[1],
+                'champ3': team1champions[2],
+                'champ4': team1champions[3],
+                'champ5': team1champions[4],
+                'champ6': team2champions[0],
+                'champ7': team2champions[1],
+                'champ8': team2champions[2],
+                'champ9': team2champions[3],
+                'champ10': team2champions[4],
+                'team1win': team1Win
             })
         except requests.exceptions.RequestException as e:
             print(f'Failed to get matches for {matchId}: {e}')
             continue
         time.sleep(timeouttime)
     print("end fetch_matches ------------------------------------------------------------")
+    print("adding matches to db")
+    for match in matchesData:
+        executeInsertMatchData(cursor, match)
+    cursor.connection.commit()
     return matchesData
 
 #info -> endOfGameResult == GameComplete -> Participants -> 0 -> champion name
 
 def fetch_puuids(): #add saftey to allow me to extract data during the process. There is just so much data and the rate limit makes it impossible
     tiers_with_ranks = [
-    # ('EMERALD', ['I', 'II', 'III', 'IV']),
+    ('EMERALD', ['I']),#, 'II', 'III', 'IV']),
     # ('DIAMOND', ['I', 'II', 'III', 'IV']), #add these when I have time to collect more data
     # ('MASTER', ['I']),
     # ('GRANDMASTER', ['I']),
@@ -138,7 +153,7 @@ def fetch_puuids(): #add saftey to allow me to extract data during the process. 
     print("begin fetch_puuids ------------------------------------------------------------")
 
     accountList = []
-    for tier, ranks in tiers_with_ranks: #need to paginate as these only get first 200 accounts from each rank. Ask professor how to know how much data I need for this project? What is a significant amount of data
+    for tier, ranks in tiers_with_ranks:
         for rank in ranks:
             page = 1
             while True:
@@ -158,11 +173,15 @@ def fetch_puuids(): #add saftey to allow me to extract data during the process. 
 
                 time.sleep(timeouttime)
     print("end fetch_puuids ------------------------------------------------------------")
+    print("adding accounts to db")
+    for account in accountList:
+        executeInsertAccount(cursor, account)
+    cursor.connection.commit()
     return accountList
 
 
 def fetch_matches_to_search():
-    puuids = [account.puuid for account in db.session.query(Account.puuid).all()]
+    puuids = [account.puuid for account in session.query(Account.puuid).all()]
     print("begin fetch_matches_to_search")
     matches_to_search = set()
     for puuid in puuids:
@@ -176,18 +195,11 @@ def fetch_matches_to_search():
             continue
         time.sleep(timeouttime)
     print("end fetch_matches_to_search ------------------------------------------------------------")
+    print("adding matches to db")
+    for match in matches_to_search:
+        executeInsertSearchedMatch(cursor, match)
+    cursor.connection.commit()
     return matches_to_search
-
-def preprocess_data(df):
-    # Drop rows where any of the key fields are NaN
-    df = df.dropna(subset=['puuid', 'tier','rank'])
-    #change rank to numeric
-    df['rank'] = df['rank'].replace({'I': 0, 'II': 100, 'III': 200, 'IV': 300}).astype(int)
-    #change tier to numeric
-    df['tier'] = df['tier'].str.lower().replace({'iron': 0, 'bronze': 400, 'silver': 800, 'gold': 1200, 'platinum': 1600, 'emerald': 2000, 'diamond': 2400}).astype(int)
-    # Drop any rows that still have NaN values at this point (forcefully)
-    df = df.dropna()
-    return df
 
 # Global variables for model
 # model = None
@@ -261,5 +273,7 @@ def preprocess_data(df):
 
 #     return jsonify()
 
-# if __name__ == '__main__':
-    # app.run(debug=True)
+if __name__ == '__main__':
+    fetch_puuids()
+    fetch_matches_to_search()
+    fetch_matches()

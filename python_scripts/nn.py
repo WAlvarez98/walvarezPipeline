@@ -1,16 +1,26 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import matplotlib.pyplot as plt
 import pandas as pd
 import sqlite3
 import os
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OneHotEncoder
+from sqlalchemy import create_engine
+
+
+DB_NAME = os.getenv("DB_NAME")
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT", "5432")
+
+# engine = create_engine(f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+engine = create_engine("postgresql+psycopg2://airflow:airflow@postgres:5432/airflow")
+df = pd.read_sql("SELECT * FROM league.matches;", con=engine)
 
 # Create Model Class that inherits nn.Module
-
 class Model(nn.Module):
     # Input layer (team comps) ->
     # hidden layer1 (n neurons) -->
@@ -35,16 +45,16 @@ class Model(nn.Module):
 #create an instance of model
 model = Model(input_features=1700) #model is the class we created above
 
-db_path = os.path.join('instance', 'listings.db')
-conn = sqlite3.connect(db_path)
-df = pd.read_sql_query("SELECT * FROM match;", conn)
-conn.close()
+# db_path = os.path.join('instance', 'listings.db')
+# conn = sqlite3.connect(db_path)
+# df = pd.read_sql_query("SELECT * FROM matches;", conn)
+# conn.close()
 
-print(df['team1Win'].value_counts())
+print(df['team1win'].value_counts())
 
 champ_cols = [f'champ{i+1}' for i in range(10)]
 X_raw = df[champ_cols]
-y = df['team1Win'].astype(int)
+y = df['team1win'].astype(int)
 
 # Flatten all champ columns into a single column for consistent encoding
 flattened = X_raw.values.flatten().reshape(-1, 1)

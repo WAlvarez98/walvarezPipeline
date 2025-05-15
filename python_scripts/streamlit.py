@@ -1,5 +1,5 @@
 import streamlit as st
-from db_connection import get_match_by_index
+from python_scripts.db_connection import get_match_by_index
 
 # --- Initialize session state ---
 if 'match_index' not in st.session_state:
